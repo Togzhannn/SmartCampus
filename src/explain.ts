@@ -1,3 +1,4 @@
+import { MAX_BOOKING_MINUTES } from '@/utils';
 import type { ReasonCode } from '@/utils';
 
 export interface ExplainInput {
@@ -41,7 +42,7 @@ export function fallbackText(i: ExplainInput): string {
     case 'PAST_START':
       return 'The start time must be later than the current time.';
     case 'TOO_LONG':
-      return 'Bookings can be at most 120 minutes long.';
+      return `Bookings can be at most ${MAX_BOOKING_MINUTES} minutes long.`;
     case 'INVALID_INTERVAL':
       return 'The selected time range is not valid. The start must be before the end.';
     default:
@@ -63,6 +64,17 @@ export function validateExplainInput(x: unknown): ExplainInput | null {
   return i as unknown as ExplainInput;
 }
 
+// Claims about the slot. A claim is ignored when it is negated ("no overlapping bookings").
+const CLAIMS_FREE =
+  /\b(?:is|are|was|be) (?:currently |now )?(?:available|free|open)\b|\bcan be (?:booked|reserved|used)\b|\bfree (?:from|for)\b|\bno (?:scheduling )?conflicts?\b|\bno overlapping\b/i;
+const CLAIMS_BUSY =
+  /\bnot (?:currently )?(?:available|free|open)\b|\bunavailable\b|\b(?:is|are) (?:already )?(?:booked|blocked|closed|taken|occupied|reserved)\b|\balready (?:booked|taken|reserved)\b|\bcannot be (?:booked|reserved|used)\b|\bcan(?:'|’)?t be (?:booked|reserved)\b|(?<!\bno )(?<!\bnot )(?<!\bwithout )\boverlap(?:s|ping)?\b/i;
+
+// Advice such as "choose a time when the room is available" is not a claim about this slot.
+function withoutConditionals(sentence: string): string {
+  return sentence.replace(/\b(?:when|if|once|whenever|until)\b[^.!?]*/gi, '');
+}
+
 // Model output is untrusted too: validate shape, length, format and agreement with the status.
 export function validateExplainOutput(x: unknown, input: ExplainInput): string | null {
   if (!x || typeof x !== 'object') return null;
@@ -72,10 +84,15 @@ export function validateExplainOutput(x: unknown, input: ExplainInput): string |
   if (!text || text.length > MAX_EXPLANATION_LENGTH) return null;
   if ((text.match(/[.!?](\s|$)/g) ?? []).length > 2) return null; // at most 2 sentences
   if (/[<>]/.test(text)) return null; // no markup
-  const sayingBusy = /\b(unavailable|not available|booked|blocked|overlap)/i.test(text);
-  const sayingFree = /\b(is|are) (available|free)\b/i.test(text);
-  if (input.isAvailable && sayingBusy) return null;
-  if (!input.isAvailable && sayingFree) return null;
+
+  // The first sentence is the verdict and is checked in full.
+  // Later sentences are checked with conditional advice removed.
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const checked = sentences.map((s, idx) => (idx === 0 ? s : withoutConditionals(s))).join(' ');
+  const claimsFree = CLAIMS_FREE.test(checked);
+  const claimsBusy = CLAIMS_BUSY.test(checked);
+  if (input.isAvailable && claimsBusy) return null;
+  if (!input.isAvailable && claimsFree) return null;
   return text;
 }
 
