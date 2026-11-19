@@ -2,10 +2,23 @@ import { useMemo, useState } from 'react';
 import { Building2, Clock, Search, RotateCcw } from 'lucide-react';
 import { ROOMS, INITIAL_BOOKINGS } from '@/data';
 import { minutesToLabel, labelToMinutes, validateInterval, MAX_BOOKING_MINUTES } from '@/utils';
+import type { ExplainInput } from '@/explain';
 import { RoomSelector } from '@/components/RoomSelector';
 import { TimeSelector } from '@/components/TimeSelector';
 import { Timeline } from '@/components/Timeline';
 import { ResultPanel } from '@/components/ResultPanel';
+import { ExplainPanel } from '@/components/ExplainPanel';
+
+interface CheckResult {
+  available: boolean;
+  reason: string;
+  // Data for the optional "Explain availability" feature (null if no room was selected)
+  explainInput: ExplainInput | null;
+  // Snapshot of what was checked, used to hide a stale explanation
+  checkedRoomId: string;
+  checkedStart: string;
+  checkedEnd: string;
+}
 
 function App() {
   // "Current time" — fictional, set to 10:00 AM for the prototype
@@ -15,7 +28,7 @@ function App() {
   const [selectedRoomId, setSelectedRoomId] = useState('');
   const [startLabel, setStartLabel] = useState('11:00 AM');
   const [endLabel, setEndLabel] = useState('12:00 PM');
-  const [result, setResult] = useState<{ available: boolean; reason: string } | null>(null);
+  const [result, setResult] = useState<CheckResult | null>(null);
 
   const selectedRoom = useMemo(
     () => ROOMS.find((r) => r.id === selectedRoomId),
@@ -37,14 +50,33 @@ function App() {
       bookings,
     );
 
+    // Only structured facts go to the explanation feature (no booking titles, no names)
+    const explainInput: ExplainInput | null = selectedRoom
+      ? {
+          roomLabel: selectedRoom.name,
+          startLabel,
+          endLabel,
+          isAvailable: validation.valid,
+          reasonCode: validation.code,
+        }
+      : null;
+
+    const snapshot = {
+      explainInput,
+      checkedRoomId: selectedRoomId,
+      checkedStart: startLabel,
+      checkedEnd: endLabel,
+    };
+
     if (!validation.valid) {
-      setResult({ available: false, reason: validation.reason! });
+      setResult({ available: false, reason: validation.reason!, ...snapshot });
       return;
     }
 
     setResult({
       available: true,
       reason: `${selectedRoom!.name} is available from ${minutesToLabel(start)} to ${minutesToLabel(end)} (${end - start} min). No conflicts with existing bookings.`,
+      ...snapshot,
     });
   }
 
@@ -62,6 +94,14 @@ function App() {
     : null;
 
   const duration = endMin > startMin ? endMin - startMin : 0;
+
+  // Show the explain feature only while the selection still matches the checked result
+  const explainVisible =
+    result !== null &&
+    result.explainInput !== null &&
+    result.checkedRoomId === selectedRoomId &&
+    result.checkedStart === startLabel &&
+    result.checkedEnd === endLabel;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
@@ -132,8 +172,16 @@ function App() {
               </button>
             </div>
 
-            {/* Result */}
+            {/* Result (deterministic, confirmed status) */}
             <ResultPanel result={result} />
+
+            {/* Optional AI explanation (never changes the status above) */}
+            {explainVisible && result?.explainInput && (
+              <ExplainPanel
+                key={`${result.checkedRoomId}|${result.checkedStart}|${result.checkedEnd}`}
+                input={result.explainInput}
+              />
+            )}
           </div>
 
           {/* Right: Timeline + booking list */}
