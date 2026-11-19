@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { explainAvailability, validateExplainOutput } from '@/explain';
+import { explainAvailability, validateExplainOutput, fallbackText } from '@/explain';
 import type { ExplainInput } from '@/explain';
+import { MAX_BOOKING_MINUTES } from '@/utils';
 
 const free: ExplainInput = {
   roomLabel: 'Curie Lab',
@@ -77,29 +78,57 @@ describe('Explain availability (LLM feature, mock adapter)', () => {
   });
 });
 
-describe('Review reproduction (current behavior)', () => {
-  it('R1a: valid explanation wrongly rejected (available result)', () => {
+describe('Review fixes (finding 1: contradiction check, finding 4: shared constant)', () => {
+  it('F1a: correct explanation with a negated keyword is accepted (available result)', () => {
     expect(
       validateExplainOutput({ explanation: 'No overlapping bookings, so the room is free.' }, free),
-    ).toBeNull();
+    ).not.toBeNull();
   });
 
-  it('R1b: valid explanation wrongly rejected (unavailable result)', () => {
+  it('F1b: advice containing "available" is accepted (unavailable result)', () => {
     expect(
       validateExplainOutput(
         { explanation: 'This slot is taken. Please choose a time when the room is available.' },
         busy,
       ),
-    ).toBeNull();
-  });
-
-  it('R1c: contradicting explanation wrongly accepted (unavailable result)', () => {
-    expect(
-      validateExplainOutput({ explanation: 'Athena 101 can be reserved at that time.' }, busy),
     ).not.toBeNull();
   });
 
-  it('R2: abbreviation counted as extra sentences', () => {
+  it('F1c: contradicting explanation is rejected (unavailable result)', () => {
+    expect(
+      validateExplainOutput({ explanation: 'Athena 101 can be reserved at that time.' }, busy),
+    ).toBeNull();
+  });
+
+  it('F1d: contradiction hidden in the verdict sentence is rejected', () => {
+    expect(
+      validateExplainOutput({ explanation: 'The room is available if you hurry.' }, busy),
+    ).toBeNull();
+  });
+
+  it('F1e: negated "overlap" is accepted for an available result', () => {
+    expect(
+      validateExplainOutput(
+        { explanation: 'The room is free and does not overlap any booking.' },
+        free,
+      ),
+    ).not.toBeNull();
+  });
+
+  it('F1f: the application\'s own fallback texts pass output validation', () => {
+    const codes = ['AVAILABLE', 'OVERLAP', 'BLOCKED', 'PAST_START', 'TOO_LONG', 'INVALID_INTERVAL', 'NO_ROOM'] as const;
+    for (const code of codes) {
+      const input: ExplainInput = { ...free, isAvailable: code === 'AVAILABLE', reasonCode: code };
+      expect(validateExplainOutput({ explanation: fallbackText(input) }, input)).not.toBeNull();
+    }
+  });
+
+  it('F4: fallback text uses the shared booking limit constant', () => {
+    const input: ExplainInput = { ...free, isAvailable: false, reasonCode: 'TOO_LONG' };
+    expect(fallbackText(input)).toContain(String(MAX_BOOKING_MINUTES));
+  });
+
+  it('R2 (known limitation, finding 2 not fixed): abbreviation counted as extra sentences', () => {
     expect(
       validateExplainOutput({ explanation: 'The slot starts at 1 p.m. and ends at 2 p.m. today.' }, free),
     ).toBeNull();
