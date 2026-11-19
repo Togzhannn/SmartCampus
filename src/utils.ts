@@ -3,6 +3,15 @@ import type { Booking, Interval, Room } from './types';
 export const MINUTES_PER_DAY = 1440;
 export const MAX_BOOKING_MINUTES = 120;
 
+export type ReasonCode =
+  | 'AVAILABLE'
+  | 'INVALID_INTERVAL'
+  | 'PAST_START'
+  | 'TOO_LONG'
+  | 'NO_ROOM'
+  | 'BLOCKED'
+  | 'OVERLAP';
+
 export function minutesToLabel(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
@@ -33,7 +42,7 @@ export function validateInterval(
   currentTime: number,
   room: Room | undefined,
   bookings: Booking[],
-): { valid: boolean; reason?: string } {
+): { valid: boolean; reason?: string; code: ReasonCode } {
   // AC1: 0 <= start < end <= 1440, start after current time
   if (
     !Number.isFinite(interval.start) ||
@@ -42,24 +51,40 @@ export function validateInterval(
     interval.end > MINUTES_PER_DAY ||
     interval.start >= interval.end
   ) {
-    return { valid: false, reason: 'Time interval is invalid. Start must be earlier than end, and both must be between 00:00 and 23:59.' };
+    return {
+      valid: false,
+      code: 'INVALID_INTERVAL',
+      reason: 'Time interval is invalid. Start must be earlier than end, and both must be between 00:00 and 23:59.',
+    };
   }
 
   if (interval.start <= currentTime) {
-    return { valid: false, reason: `Start time must be after the current time (${minutesToLabel(currentTime)}).` };
+    return {
+      valid: false,
+      code: 'PAST_START',
+      reason: `Start time must be after the current time (${minutesToLabel(currentTime)}).`,
+    };
   }
 
   // AC2: booking longer than 120 minutes
   if (interval.end - interval.start > MAX_BOOKING_MINUTES) {
-    return { valid: false, reason: `Bookings cannot exceed ${MAX_BOOKING_MINUTES} minutes. Your selected duration is ${interval.end - interval.start} minutes.` };
+    return {
+      valid: false,
+      code: 'TOO_LONG',
+      reason: `Bookings cannot exceed ${MAX_BOOKING_MINUTES} minutes. Your selected duration is ${interval.end - interval.start} minutes.`,
+    };
   }
 
   // AC3: room blocked
   if (!room) {
-    return { valid: false, reason: 'Please select a room.' };
+    return { valid: false, code: 'NO_ROOM', reason: 'Please select a room.' };
   }
   if (room.blocked) {
-    return { valid: false, reason: `${room.name} is currently blocked and unavailable for booking.` };
+    return {
+      valid: false,
+      code: 'BLOCKED',
+      reason: `${room.name} is currently blocked and unavailable for booking.`,
+    };
   }
 
   // AC4: overlaps existing booking
@@ -68,9 +93,10 @@ export function validateInterval(
   if (conflict) {
     return {
       valid: false,
+      code: 'OVERLAP',
       reason: `Overlaps "${conflict.title}" (${minutesToLabel(conflict.start)}–${minutesToLabel(conflict.end)}) in ${room.name}.`,
     };
   }
 
-  return { valid: true };
+  return { valid: true, code: 'AVAILABLE' };
 }
