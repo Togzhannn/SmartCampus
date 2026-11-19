@@ -72,7 +72,7 @@ describe('validateInterval', () => {
       roomById('r1'),
       INITIAL_BOOKINGS,
     );
-    expect(result).toEqual({ valid: true });
+    expect(result).toEqual({ valid: true, code: 'AVAILABLE' }); // changed
   });
 
   it('AC3: rejects a booking in blocked room r4', () => {
@@ -104,7 +104,7 @@ describe('validateInterval', () => {
       roomById('r1'),
       INITIAL_BOOKINGS,
     );
-    expect(result).toEqual({ valid: true });
+    expect(result).toEqual({ valid: true, code: 'AVAILABLE' }); // changed
   });
 
   it('AC5: does not mutate booking fixtures', () => {
