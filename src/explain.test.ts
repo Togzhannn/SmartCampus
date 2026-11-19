@@ -76,3 +76,32 @@ describe('Explain availability (LLM feature, mock adapter)', () => {
     expect(validateExplainOutput({ explanation: '<b>free</b>' }, free)).toBeNull();
   });
 });
+
+describe('Review reproduction (current behavior)', () => {
+  it('R1a: valid explanation wrongly rejected (available result)', () => {
+    expect(
+      validateExplainOutput({ explanation: 'No overlapping bookings, so the room is free.' }, free),
+    ).toBeNull();
+  });
+
+  it('R1b: valid explanation wrongly rejected (unavailable result)', () => {
+    expect(
+      validateExplainOutput(
+        { explanation: 'This slot is taken. Please choose a time when the room is available.' },
+        busy,
+      ),
+    ).toBeNull();
+  });
+
+  it('R1c: contradicting explanation wrongly accepted (unavailable result)', () => {
+    expect(
+      validateExplainOutput({ explanation: 'Athena 101 can be reserved at that time.' }, busy),
+    ).not.toBeNull();
+  });
+
+  it('R2: abbreviation counted as extra sentences', () => {
+    expect(
+      validateExplainOutput({ explanation: 'The slot starts at 1 p.m. and ends at 2 p.m. today.' }, free),
+    ).toBeNull();
+  });
+});
